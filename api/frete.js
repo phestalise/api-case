@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
 
   try {
     const token = process.env.SUPERFRETE_TOKEN;
-    const baseUrl = process.env.SUPERFRETE_BASE_URL;
+    const baseUrl = process.env.SUPERFRETE_BASE_URL; // ex: https://sandbox.superfrete.com/api/v0
     const cepOrigem = process.env.CEP_ORIGEM;
 
     if (!token || !baseUrl || !cepOrigem) {
@@ -39,25 +39,42 @@ module.exports = async (req, res) => {
       {
         from: { postal_code: cepOrigem },
         to: { postal_code: String(cepDestino).replace(/\D/g, "") },
-        products: [{
-          weight: peso,
+        package: {
           height: altura,
           width: largura,
           length: comprimento,
+          weight: peso,
+        },
+        options: {
           insurance_value: valorDeclarado,
-          quantity: 1,
-        }],
+          receipt: false,
+          own_hand: false,
+        },
       },
-      { headers: { Authorization: "Bearer " + token } }
+      {
+        headers: {
+          Authorization: "Bearer " + token,
+          "User-Agent": "Estalise (contato@estalise.com)",
+          "Content-Type": "application/json",
+        },
+      }
     );
 
-    // ============================================================
-    // DEBUG TEMPORARIO: ver o formato real da resposta do SuperFrete.
-    // Depois de identificarmos a estrutura certa, removemos este bloco
-    // e voltamos a montar "opcoes" normalmente.
-    // ============================================================
-    return res.status(200).json({ debug_raw_response: response.data });
+    if (!Array.isArray(response.data)) {
+      console.error("Formato inesperado do SuperFrete:", response.data);
+      return res.status(500).json({ error: "Resposta inesperada do servico de frete.", detalhe: response.data });
+    }
 
+    const opcoes = response.data
+      .filter((o) => !o.error)
+      .map((o) => ({
+        id: o.id,
+        nome: o.name,
+        preco: o.price,
+        prazo_dias: o.delivery_time,
+      }));
+
+    res.status(200).json({ opcoes });
   } catch (error) {
     const detalhe = error.response ? error.response.data : error.message;
     console.error("Erro ao calcular frete:", detalhe);
