@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
 
   try {
     const token = process.env.SUPERFRETE_TOKEN;
-    const baseUrl = process.env.SUPERFRETE_BASE_URL; // ex: https://sandbox.superfrete.com/api/v0
+    const baseUrl = process.env.SUPERFRETE_BASE_URL; // ex: https://sandbox.superfrete.com
     const cepOrigem = process.env.CEP_ORIGEM;
 
     if (!token || !baseUrl || !cepOrigem) {
@@ -35,20 +35,22 @@ module.exports = async (req, res) => {
     }
 
     const response = await axios.post(
-      baseUrl + "/calculator",
+      baseUrl + "/api/v0/calculator",
       {
         from: { postal_code: cepOrigem },
         to: { postal_code: String(cepDestino).replace(/\D/g, "") },
+        services: "1,2,17",
+        options: {
+          own_hand: false,
+          receipt: false,
+          insurance_value: valorDeclarado || 0,
+          use_insurance_value: !!valorDeclarado,
+        },
         package: {
           height: altura,
           width: largura,
           length: comprimento,
           weight: peso,
-        },
-        options: {
-          insurance_value: valorDeclarado,
-          receipt: false,
-          own_hand: false,
         },
       },
       {
@@ -66,7 +68,7 @@ module.exports = async (req, res) => {
     }
 
     const opcoes = response.data
-      .filter((o) => !o.error)
+      .filter((o) => !o.has_error)
       .map((o) => ({
         id: o.id,
         nome: o.name,
