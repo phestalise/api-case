@@ -1,4 +1,4 @@
-// api/calcular-frete.js
+// api/frete.js
 const axios = require("axios");
 
 module.exports = async (req, res) => {
@@ -10,12 +10,25 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Metodo nao permitido." });
+  }
+
   try {
     const token = process.env.SUPERFRETE_TOKEN;
     const baseUrl = process.env.SUPERFRETE_BASE_URL;
     const cepOrigem = process.env.CEP_ORIGEM;
 
-    const { cepDestino, peso, altura, largura, comprimento, valorDeclarado } = req.body;
+    if (!token || !baseUrl || !cepOrigem) {
+      console.error("Variaveis de ambiente ausentes.", {
+        temToken: !!token,
+        temBaseUrl: !!baseUrl,
+        temCepOrigem: !!cepOrigem,
+      });
+      return res.status(500).json({ error: "Configuracao do servidor incompleta." });
+    }
+
+    const { cepDestino, peso, altura, largura, comprimento, valorDeclarado } = req.body || {};
 
     if (!cepDestino || !peso) {
       return res.status(400).json({ error: "Dados incompletos." });
@@ -47,7 +60,8 @@ module.exports = async (req, res) => {
 
     res.status(200).json({ opcoes });
   } catch (error) {
-    console.error(error.response ? error.response.data : error.message);
-    res.status(500).json({ error: "Falha ao calcular frete." });
+    const detalhe = error.response ? error.response.data : error.message;
+    console.error("Erro ao calcular frete:", detalhe);
+    res.status(500).json({ error: "Falha ao calcular frete.", detalhe: detalhe });
   }
 };
