@@ -51,14 +51,13 @@ module.exports = async (req, res) => {
       { headers: { Authorization: "Bearer " + token } }
     );
 
-    const opcoes = response.data.map((o) => ({
-      id: o.id,
-      nome: o.name,
-      preco: o.price,
-      prazo_dias: o.delivery_time,
-    }));
+    // ============================================================
+    // DEBUG TEMPORARIO: ver o formato real da resposta do SuperFrete.
+    // Depois de identificarmos a estrutura certa, removemos este bloco
+    // e voltamos a montar "opcoes" normalmente.
+    // ============================================================
+    return res.status(200).json({ debug_raw_response: response.data });
 
-    res.status(200).json({ opcoes });
   } catch (error) {
     const detalhe = error.response ? error.response.data : error.message;
     console.error("Erro ao calcular frete:", detalhe);
