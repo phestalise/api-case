@@ -1,119 +1,112 @@
-const axios =
-  require("axios");
+const axios = require("axios");
 
-module.exports =
-async (req, res) => {
+module.exports = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    "*"
-  );
-
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "POST, OPTIONS"
-  );
-
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type"
-  );
-
-  if (
-    req.method ===
-    "OPTIONS"
-  ) {
-    return res
-      .status(200)
-      .end();
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
-  if (
-    req.method !==
-    "POST"
-  ) {
-    return res
-      .status(405)
-      .json({
-        error:
-          "Método não permitido"
-      });
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      error: "Método não permitido."
+    });
   }
 
   try {
-
     const {
       id,
       itens
     } = req.body;
 
-    const response =
-      await axios.post(
-        "https://api.checkout.infinitepay.io/links",
-        {
-          handle:
-            "paulo-estalise",
+    if (!id) {
+      return res.status(400).json({
+        error: "ID do pedido não informado."
+      });
+    }
 
-          items:
-            itens.map(
-              (
-                item
-              ) => ({
-                quantity:
-                  item.quantidade,
+    if (!Array.isArray(itens) || itens.length === 0) {
+      return res.status(400).json({
+        error: "Itens do pedido não informados."
+      });
+    }
 
-                price:
-                  Math.round(
-                    item.preco_unitario *
-                    100
-                  ),
+    const payload = {
+      handle: "paulo-estalise",
 
-                description:
-                  item.nome
-              })
-            ),
+      items: itens.map((item) => ({
+        quantity: Number(item.quantidade || 1),
 
-          order_nsu:
-            id,
+        // InfinitePay recebe em centavos
+        price: Math.round(
+          Number(item.preco_unitario || 0) * 100
+        ),
 
-          redirect_url:
-            "https://cases-estalise.vercel.app/pedido-confirmado.html",
+        description:
+          item.nome || "Produto"
+      })),
 
-          webhook_url:
-            "https://api-case.vercel.app/api/infinitypay-webhook"
-        }
-      );
+      order_nsu: id,
+
+      redirect_url:
+        "https://cases-estalise.vercel.app/pedido-confirmado.html",
+
+      webhook_url:
+        "https://api-case.vercel.app/api/infinitypay-webhook"
+    };
 
     console.log(
+      "Payload enviado:",
+      JSON.stringify(payload, null, 2)
+    );
+
+    const response = await axios.post(
+      "https://api.checkout.infinitepay.io/links",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log(
+      "Resposta InfinitePay:",
       response.data
     );
 
-    return res.json({
-      checkout_url:
-        response.data
-          .url ||
+    const checkoutUrl =
+      response.data?.checkout_url ||
+      response.data?.url ||
+      response.data?.link ||
+      response.data?.payment_url;
 
-        response.data
-          .link ||
+    if (!checkoutUrl) {
+      return res.status(500).json({
+        error: "InfinitePay não retornou URL.",
+        detalhe: response.data
+      });
+    }
 
-        response.data
-          .checkout_url
+    return res.status(200).json({
+      success: true,
+      checkout_url: checkoutUrl
     });
 
-  }
-  catch (err) {
+  } catch (error) {
 
     console.error(
-      err.response
-        ?.data ||
-      err
+      "Erro InfinitePay:",
+      error.response?.data || error.message
     );
 
-    return res
-      .status(500)
-      .json({
-        error:
-          "Erro ao criar checkout."
-      });
+    return res.status(500).json({
+      error: "Erro ao criar checkout.",
+      detalhe:
+        error.response?.data ||
+        error.message
+    });
   }
 };
