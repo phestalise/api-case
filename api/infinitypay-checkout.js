@@ -16,10 +16,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const {
-      id,
-      itens
-    } = req.body;
+    const { id, itens } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -58,8 +55,15 @@ module.exports = async (req, res) => {
     };
 
     console.log(
-      "Payload enviado:",
-      JSON.stringify(payload, null, 2)
+      "Payload enviado:"
+    );
+
+    console.log(
+      JSON.stringify(
+        payload,
+        null,
+        2
+      )
     );
 
     const response = await axios.post(
@@ -67,43 +71,56 @@ module.exports = async (req, res) => {
       payload,
       {
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type":
+            "application/json"
         }
       }
     );
 
     console.log(
-      "Resposta InfinitePay:",
+      "Resposta InfinitePay:"
+    );
+
+    console.log(
       response.data
     );
 
     const checkoutUrl =
-      response.data?.checkout_url ||
       response.data?.url ||
       response.data?.link ||
+      response.data?.checkout_url ||
       response.data?.payment_url;
 
     if (!checkoutUrl) {
       return res.status(500).json({
-        error: "InfinitePay não retornou URL.",
-        detalhe: response.data
+        error:
+          "InfinitePay não retornou URL.",
+        detalhe:
+          response.data
       });
     }
 
     return res.status(200).json({
       success: true,
-      checkout_url: checkoutUrl
+      checkout_url:
+        checkoutUrl
     });
 
   } catch (error) {
 
     console.error(
-      "Erro InfinitePay:",
-      error.response?.data || error.message
+      "Erro InfinitePay:"
+    );
+
+    console.error(
+      error.response?.data ||
+      error.message
     );
 
     return res.status(500).json({
-      error: "Erro ao criar checkout.",
+      error:
+        "Erro ao criar checkout.",
+
       detalhe:
         error.response?.data ||
         error.message
