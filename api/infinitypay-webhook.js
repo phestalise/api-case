@@ -1,19 +1,39 @@
 const admin = require("firebase-admin");
 
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(
-      JSON.parse(
-        process.env.FIREBASE_SERVICE_ACCOUNT
-      )
-    )
-  });
+  try {
+    const serviceAccount = JSON.parse(
+      process.env.FIREBASE_SERVICE_ACCOUNT
+    );
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+  } catch (err) {
+    console.error(
+      "Erro ao inicializar Firebase Admin:",
+      err
+    );
+    throw err;
+  }
 }
 
 const db = admin.firestore();
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "POST, OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -48,8 +68,7 @@ module.exports = async (req, res) => {
       .collection("pedidos")
       .doc(order_nsu);
 
-    const pedidoDoc =
-      await pedidoRef.get();
+    const pedidoDoc = await pedidoRef.get();
 
     if (!pedidoDoc.exists) {
       return res.status(404).json({
@@ -62,30 +81,19 @@ module.exports = async (req, res) => {
 
       pagamento: {
         status: "aprovado",
-
-        metodo:
-          capture_method || "",
-
+        metodo: capture_method || "",
         transaction_nsu:
           transaction_nsu || "",
-
         receipt_url:
           receipt_url || "",
-
         invoice_slug:
           invoice_slug || "",
-
         installments:
-          installments || 1,
-
+          Number(installments || 1),
         valor_original:
           Number(amount || 0) / 100,
-
         valor_pago:
-          Number(
-            paid_amount || 0
-          ) / 100,
-
+          Number(paid_amount || 0) / 100,
         atualizado_em:
           admin.firestore.FieldValue.serverTimestamp()
       },
@@ -94,14 +102,17 @@ module.exports = async (req, res) => {
         admin.firestore.FieldValue.serverTimestamp()
     });
 
+    console.log(
+      `Pedido ${order_nsu} atualizado para pago`
+    );
+
     return res.status(200).json({
       success: true
     });
 
   } catch (error) {
-
     console.error(
-      "Erro webhook:",
+      "Erro no webhook:",
       error
     );
 
