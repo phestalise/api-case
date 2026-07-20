@@ -1,40 +1,41 @@
-// api/infinitypay-webhook.js
+const admin =
+  require(
+    "firebase-admin"
+  );
 
-const admin = require("firebase-admin");
-
-if (!admin.apps.length) {
-  admin.initializeApp();
+if (
+  !admin.apps.length
+) {
+  admin.initializeApp({
+    credential:
+      admin.credential.cert(
+        JSON.parse(
+          process.env
+            .FIREBASE_SERVICE_ACCOUNT
+        )
+      )
+  });
 }
 
-const db = admin.firestore();
+const db =
+  admin.firestore();
 
-module.exports = async (req, res) => {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "POST, OPTIONS"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type"
-  );
+module.exports =
+async (
+  req,
+  res
+) => {
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      error: "Método não permitido"
-    });
+  if (
+    req.method !==
+    "POST"
+  ) {
+    return res
+      .status(405)
+      .end();
   }
 
   try {
-    console.log(
-      "Webhook InfinitePay:",
-      JSON.stringify(req.body, null, 2)
-    );
 
     const {
       order_nsu,
@@ -45,68 +46,91 @@ module.exports = async (req, res) => {
       paid_amount,
       installments,
       invoice_slug
-    } = req.body;
+    } =
+      req.body;
 
-    // Pedido não informado
-    if (!order_nsu) {
-      return res.status(400).json({
-        error: "order_nsu não enviado"
-      });
-    }
+    const pedidoRef =
+      db.collection(
+        "pedidos"
+      )
+      .doc(
+        order_nsu
+      );
 
-    const pedidoRef = db
-      .collection("pedidos")
-      .doc(order_nsu);
+    await pedidoRef.update(
+      {
+        status:
+          "pago",
 
-    const pedidoSnap = await pedidoRef.get();
+        pagamento:
+        {
+          status:
+            "aprovado",
 
-    if (!pedidoSnap.exists) {
-      return res.status(404).json({
-        error: "Pedido não encontrado"
-      });
-    }
+          metodo:
+            capture_method ||
+            "",
 
-    // Atualiza pedido como pago
-    await pedidoRef.update({
-      status: "pago",
+          transaction_nsu:
+            transaction_nsu ||
+            "",
 
-      pagamento: {
-        status: "aprovado",
-        metodo: capture_method || "",
-        transaction_nsu:
-          transaction_nsu || "",
-        receipt_url:
-          receipt_url || "",
-        invoice_slug:
-          invoice_slug || "",
-        installments:
-          installments || 1,
-        valor_original:
-          (amount || 0) / 100,
-        valor_pago:
-          (paid_amount || 0) / 100
-      },
+          receipt_url:
+            receipt_url ||
+            "",
 
-      updated_at:
-        admin.firestore.FieldValue.serverTimestamp()
-    });
+          invoice_slug:
+            invoice_slug ||
+            "",
 
-    console.log(
-      `Pedido ${order_nsu} atualizado para pago`
+          installments:
+            installments ||
+            1,
+
+          valor_original:
+            (
+              amount ||
+              0
+            ) /
+            100,
+
+          valor_pago:
+            (
+              paid_amount ||
+              0
+            ) /
+            100
+        },
+
+        updated_at:
+          admin
+            .firestore
+            .FieldValue
+            .serverTimestamp()
+      }
     );
 
-    return res.status(200).json({
-      success: true
-    });
+    return res
+      .status(200)
+      .json({
+        success:
+          true
+      });
 
-  } catch (error) {
+  }
+  catch (
+    error
+  ) {
+
     console.error(
-      "Erro no webhook:",
       error
     );
 
-    return res.status(500).json({
-      error: "Erro interno"
-    });
+    return res
+      .status(500)
+      .json({
+        error:
+          "Erro interno"
+      });
   }
 };
