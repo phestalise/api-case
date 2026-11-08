@@ -179,26 +179,7 @@ module.exports = async (req, res) => {
       atualizado_em: admin.firestore.FieldValue.serverTimestamp()
     };
 
-    // ---------------------------------------------------------------
-    // SÓ PIX É CONFIRMADO AUTOMATICAMENTE
-    // A InfinitePay não permite desligar o cartão no link de pagamento,
-    // então se o cliente pagar com cartão o pedido NÃO é confirmado:
-    // fica como "pago_cartao" para o gestor revisar (estornar ou aceitar).
-    // ---------------------------------------------------------------
-    if (metodo !== "pix") {
-      await pedidoRef.update({
-        status: "pago_cartao",
-        pagamento: { status: "metodo_nao_permitido", ...dadosPagamento },
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        arquivado: false
-      });
-      console.warn(
-        `Pedido ${order_nsu} pago com "${metodo}" (só Pix é aceito). Marcado para revisão.`
-      );
-      return res.status(200).json({ success: true, revisao: true });
-    }
-
-    // Pix validado: confirma o pedido automaticamente
+    // Pagamento validado (Pix ou cartão): confirma o pedido automaticamente
     await pedidoRef.update({
       status: "pago",
       pagamento: { status: "aprovado", ...dadosPagamento },
@@ -209,7 +190,7 @@ module.exports = async (req, res) => {
     });
 
     console.log(
-      `Pedido ${order_nsu} confirmado (Pix validado via payment_check)`
+      `Pedido ${order_nsu} confirmado (${metodo || "pagamento"} validado via payment_check)`
     );
 
     // Contabiliza o uso do cupom (só em pedido efetivamente pago)
@@ -279,7 +260,7 @@ async function enviarEmailConfirmacao(pedidoId, pedido, valorPago) {
       html: `
         <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#222">
           <h2>Pagamento confirmado! 🎉</h2>
-          <p>Olá${primeiroNome ? `, ${primeiroNome}` : ""}! Recebemos o seu Pix de <strong>${valor}</strong>
+          <p>Olá${primeiroNome ? `, ${primeiroNome}` : ""}! Recebemos o seu pagamento de <strong>${valor}</strong>
           referente ao pedido <strong>#${numero}</strong>.</p>
           ${itens ? `<ul>${itens}</ul>` : ""}
           <p>Sua peça já entrou na fila de produção. O prazo de produção é de até

@@ -18,6 +18,28 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// ===================================================
+// BLACK FRIDAY
+// Para encerrar a promoção: troque ativo para false.
+// (O site tem a mesma chave em public/js/config.js.)
+// ===================================================
+const BLACK_FRIDAY = {
+  ativo: true,
+  // Preço promocional da versão PERSONALIZADA, por tipo de produto
+  precos_personalizado: {
+    case: 159.90,
+    pasta: 199.90
+  }
+};
+
+// Só aplica se o preço promocional for menor que o preço normal do banco.
+function precoPersonalizadoComPromo(produto) {
+  const normal = Number(produto.preco_personalizado || 0);
+  const promo = Number(BLACK_FRIDAY.precos_personalizado[produto.tipo]);
+  if (BLACK_FRIDAY.ativo && promo > 0 && promo < normal) return promo;
+  return normal;
+}
+
 module.exports = async (req, res) => {
 
   res.setHeader("Access-Control-Allow-Origin", "https://cases-estalise.vercel.app");
@@ -76,9 +98,21 @@ module.exports = async (req, res) => {
         });
       }
 
+      // Na Black Friday, produtos em promoção são vendidos só personalizados.
+      if (
+        BLACK_FRIDAY.ativo &&
+        !item.is_personalizado &&
+        Number(BLACK_FRIDAY.precos_personalizado[produto.tipo]) > 0
+      ) {
+        return res.status(400).json({
+          error: `Na Black Friday "${produto.nome || "este produto"}" é vendido somente personalizado. Remova o item do carrinho e adicione a versão personalizada.`
+        });
+      }
+
       // Preço vem do Firestore, nunca do body da requisição.
+      // Na Black Friday, a versão personalizada usa o preço promocional.
       const precoReal = item.is_personalizado
-        ? Number(produto.preco_personalizado || 0)
+        ? precoPersonalizadoComPromo(produto)
         : Number(produto.preco_padrao || 0);
 
       const quantidade = Math.max(1, Number(item.quantidade || 1));
@@ -171,9 +205,7 @@ module.exports = async (req, res) => {
     const customer = await montarCliente(pedidoData.user_id);
     if (customer) payload.customer = customer;
 
-    // Com API Key (opcional), dá pra configurar desconto automático no Pix.
-    // O cartão NÃO pode ser desligado na InfinitePay ("O cartão fica sempre
-    // ligado"), então o bloqueio de cartão é feito no webhook.
+    // API Key opcional (habilita as "options" do link na InfinitePay).
     const headers = { "Content-Type": "application/json" };
     if (process.env.INFINITEPAY_API_KEY) {
       headers["X-Api-Key"] = process.env.INFINITEPAY_API_KEY;
