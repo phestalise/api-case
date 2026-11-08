@@ -157,7 +157,8 @@ module.exports = async (req, res) => {
           valor_pago: valorPagoConfirmado,
           atualizado_em: admin.firestore.FieldValue.serverTimestamp()
         },
-        updated_at: admin.firestore.FieldValue.serverTimestamp()
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        arquivado: false
       });
 
       return res.status(200).json({ success: true, divergente: true });
@@ -188,7 +189,8 @@ module.exports = async (req, res) => {
       await pedidoRef.update({
         status: "pago_cartao",
         pagamento: { status: "metodo_nao_permitido", ...dadosPagamento },
-        updated_at: admin.firestore.FieldValue.serverTimestamp()
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        arquivado: false
       });
       console.warn(
         `Pedido ${order_nsu} pago com "${metodo}" (só Pix é aceito). Marcado para revisão.`
@@ -201,7 +203,9 @@ module.exports = async (req, res) => {
       status: "pago",
       pagamento: { status: "aprovado", ...dadosPagamento },
       pago_em: admin.firestore.FieldValue.serverTimestamp(),
-      updated_at: admin.firestore.FieldValue.serverTimestamp()
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      // Se o pedido tinha sido "zerado" no painel, volta a aparecer
+      arquivado: false
     });
 
     console.log(

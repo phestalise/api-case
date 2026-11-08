@@ -145,7 +145,8 @@ module.exports = async (req, res) => {
       valor_frete: valorFrete,
       status: "aguardando_pagamento",
       "pagamento.valor": totalValidado,
-      total_validado_em: admin.firestore.FieldValue.serverTimestamp()
+      total_validado_em: admin.firestore.FieldValue.serverTimestamp(),
+      arquivado: false
     });
 
     // Com desconto, a InfinitePay não aceita item com valor negativo,
