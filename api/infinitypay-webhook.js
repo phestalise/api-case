@@ -88,7 +88,7 @@ module.exports = async (req, res) => {
     // Idempotência: se já está pago, não faz nada de novo
     // (evita reprocessar caso a InfinitePay reenvie o mesmo webhook)
     const pedidoAtual = pedidoDoc.data();
-    if (pedidoAtual.status === "pago") {
+    if (["pago", "pago_cartao", "em_producao", "enviado", "entregue"].includes(pedidoAtual.status)) {
       console.log(
         `Pedido ${order_nsu} já estava marcado como pago. Ignorando reenvio.`
       );
@@ -163,28 +163,64 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: true, divergente: true });
     }
 
-    // Tudo validado: marca como pago de fato
+    const metodo = String(
+      capture_method || confirmacao.capture_method || ""
+    ).toLowerCase();
+
+    const dadosPagamento = {
+      metodo,
+      transaction_nsu: transaction_nsu || "",
+      receipt_url: receipt_url || "",
+      invoice_slug: invoice_slug || "",
+      installments: Number(installments || confirmacao.installments || 1),
+      valor_original: valorEsperado || Number(amount || 0) / 100,
+      valor_pago: valorPagoConfirmado,
+      atualizado_em: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    // ---------------------------------------------------------------
+    // SÓ PIX É CONFIRMADO AUTOMATICAMENTE
+    // A InfinitePay não permite desligar o cartão no link de pagamento,
+    // então se o cliente pagar com cartão o pedido NÃO é confirmado:
+    // fica como "pago_cartao" para o gestor revisar (estornar ou aceitar).
+    // ---------------------------------------------------------------
+    if (metodo !== "pix") {
+      await pedidoRef.update({
+        status: "pago_cartao",
+        pagamento: { status: "metodo_nao_permitido", ...dadosPagamento },
+        updated_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+      console.warn(
+        `Pedido ${order_nsu} pago com "${metodo}" (só Pix é aceito). Marcado para revisão.`
+      );
+      return res.status(200).json({ success: true, revisao: true });
+    }
+
+    // Pix validado: confirma o pedido automaticamente
     await pedidoRef.update({
       status: "pago",
-
-      pagamento: {
-        status: "aprovado",
-        metodo: capture_method || confirmacao.capture_method || "",
-        transaction_nsu: transaction_nsu || "",
-        receipt_url: receipt_url || "",
-        invoice_slug: invoice_slug || "",
-        installments: Number(installments || confirmacao.installments || 1),
-        valor_original: valorEsperado || Number(amount || 0) / 100,
-        valor_pago: valorPagoConfirmado,
-        atualizado_em: admin.firestore.FieldValue.serverTimestamp()
-      },
-
+      pagamento: { status: "aprovado", ...dadosPagamento },
+      pago_em: admin.firestore.FieldValue.serverTimestamp(),
       updated_at: admin.firestore.FieldValue.serverTimestamp()
     });
 
     console.log(
-      `Pedido ${order_nsu} atualizado para pago (validado via payment_check)`
+      `Pedido ${order_nsu} confirmado (Pix validado via payment_check)`
     );
+
+    // Contabiliza o uso do cupom (só em pedido efetivamente pago)
+    if (pedidoAtual.cupom?.codigo) {
+      await db.collection("cupons").doc(pedidoAtual.cupom.codigo)
+        .update({ usos: admin.firestore.FieldValue.increment(1) })
+        .catch(err => console.warn("Falha ao contabilizar cupom:", err.message));
+    }
+
+    // Mensagem pro cliente (falha no envio não desfaz a confirmação)
+    await enviarEmailConfirmacao(order_nsu, pedidoAtual, valorPagoConfirmado)
+      .catch(err => console.error(
+        "Falha ao enviar e-mail de confirmação:",
+        err.response?.data || err.message
+      ));
 
     return res.status(200).json({
       success: true
@@ -202,3 +238,63 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+// =============================================================
+// E-MAIL DE CONFIRMAÇÃO (via Resend — https://resend.com)
+// Variáveis na Vercel: RESEND_API_KEY e EMAIL_FROM
+// (ex.: "Estalise <pedidos@seudominio.com.br>")
+// Sem RESEND_API_KEY o envio é apenas ignorado.
+// =============================================================
+async function enviarEmailConfirmacao(pedidoId, pedido, valorPago) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.log("RESEND_API_KEY não configurada: e-mail de confirmação não enviado.");
+    return;
+  }
+  if (!pedido.user_id) return;
+
+  const usuario = await admin.auth().getUser(pedido.user_id);
+  if (!usuario.email) return;
+
+  const perfilDoc = await db.collection("usuarios").doc(pedido.user_id).get();
+  const nome = (perfilDoc.exists && perfilDoc.data().nome_completo) || "";
+  const primeiroNome = escapeHtml(nome.split(" ")[0] || "");
+  const numero = escapeHtml(String(pedidoId).slice(0, 8));
+  const valor = Number(valorPago || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  const itens = (pedido.itens || []).map(i =>
+    `<li>${escapeHtml(i.quantidade || 1)}x ${escapeHtml(i.nome || "Produto")}</li>`
+  ).join("");
+
+  await axios.post(
+    "https://api.resend.com/emails",
+    {
+      from: process.env.EMAIL_FROM || "Estalise <onboarding@resend.dev>",
+      to: [usuario.email],
+      subject: `Pagamento confirmado — pedido #${numero}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#222">
+          <h2>Pagamento confirmado! 🎉</h2>
+          <p>Olá${primeiroNome ? `, ${primeiroNome}` : ""}! Recebemos o seu Pix de <strong>${valor}</strong>
+          referente ao pedido <strong>#${numero}</strong>.</p>
+          ${itens ? `<ul>${itens}</ul>` : ""}
+          <p>Sua peça já entrou na fila de produção. O prazo de produção é de até
+          <strong>15 dias</strong> antes do envio, e você receberá o código de rastreio assim que for postada.</p>
+          <p><a href="https://cases-estalise.vercel.app/conta.html">Acompanhar meu pedido</a></p>
+          <p style="color:#888;font-size:12px">Estalise</p>
+        </div>`
+    },
+    { headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" } }
+  );
+
+  console.log(`E-mail de confirmação enviado para o pedido ${pedidoId}`);
+}
+
+function escapeHtml(valor) {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
