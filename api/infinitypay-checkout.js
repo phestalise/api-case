@@ -29,14 +29,22 @@ const BLACK_FRIDAY = {
   precos_personalizado: {
     case: 159.90,
     pasta: 199.90
-  }
+  },
+  // Depois desta data a promoção encerra sozinha (igual ao site)
+  fim: "2026-11-30T23:59:59-03:00"
 };
+
+function blackFridayAtiva() {
+  if (!BLACK_FRIDAY.ativo) return false;
+  if (BLACK_FRIDAY.fim && Date.now() > new Date(BLACK_FRIDAY.fim).getTime()) return false;
+  return true;
+}
 
 // Só aplica se o preço promocional for menor que o preço normal do banco.
 function precoPersonalizadoComPromo(produto) {
   const normal = Number(produto.preco_personalizado || 0);
   const promo = Number(BLACK_FRIDAY.precos_personalizado[produto.tipo]);
-  if (BLACK_FRIDAY.ativo && promo > 0 && promo < normal) return promo;
+  if (blackFridayAtiva() && promo > 0 && promo < normal) return promo;
   return normal;
 }
 
@@ -100,7 +108,7 @@ module.exports = async (req, res) => {
 
       // Na Black Friday, produtos em promoção são vendidos só personalizados.
       if (
-        BLACK_FRIDAY.ativo &&
+        blackFridayAtiva() &&
         !item.is_personalizado &&
         Number(BLACK_FRIDAY.precos_personalizado[produto.tipo]) > 0
       ) {
