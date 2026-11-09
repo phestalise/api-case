@@ -1,14 +1,16 @@
-const admin = require("firebase-admin");
+const { initializeApp, getApps, cert } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const axios = require("axios");
 
-if (!admin.apps.length) {
+if (!getApps().length) {
   try {
     const serviceAccount = JSON.parse(
       process.env.FIREBASE_SERVICE_ACCOUNT
     );
 
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+      credential: cert(serviceAccount)
     });
   } catch (err) {
     console.error(
@@ -19,7 +21,7 @@ if (!admin.apps.length) {
   }
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
 // Handle da sua conta InfinitePay (mesmo usado no link de pagamento)
 const INFINITEPAY_HANDLE = "paulo-estalise";
@@ -155,9 +157,9 @@ module.exports = async (req, res) => {
           installments: Number(installments || confirmacao.installments || 1),
           valor_original: valorEsperado,
           valor_pago: valorPagoConfirmado,
-          atualizado_em: admin.firestore.FieldValue.serverTimestamp()
+          atualizado_em: FieldValue.serverTimestamp()
         },
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: FieldValue.serverTimestamp(),
         arquivado: false
       });
 
@@ -176,15 +178,15 @@ module.exports = async (req, res) => {
       installments: Number(installments || confirmacao.installments || 1),
       valor_original: valorEsperado || Number(amount || 0) / 100,
       valor_pago: valorPagoConfirmado,
-      atualizado_em: admin.firestore.FieldValue.serverTimestamp()
+      atualizado_em: FieldValue.serverTimestamp()
     };
 
     // Pagamento validado (Pix ou cartão): confirma o pedido automaticamente
     await pedidoRef.update({
       status: "pago",
       pagamento: { status: "aprovado", ...dadosPagamento },
-      pago_em: admin.firestore.FieldValue.serverTimestamp(),
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      pago_em: FieldValue.serverTimestamp(),
+      updated_at: FieldValue.serverTimestamp(),
       // Se o pedido tinha sido "zerado" no painel, volta a aparecer
       arquivado: false
     });
@@ -196,7 +198,7 @@ module.exports = async (req, res) => {
     // Contabiliza o uso do cupom (só em pedido efetivamente pago)
     if (pedidoAtual.cupom?.codigo) {
       await db.collection("cupons").doc(pedidoAtual.cupom.codigo)
-        .update({ usos: admin.firestore.FieldValue.increment(1) })
+        .update({ usos: FieldValue.increment(1) })
         .catch(err => console.warn("Falha ao contabilizar cupom:", err.message));
     }
 
@@ -238,7 +240,7 @@ async function enviarEmailConfirmacao(pedidoId, pedido, valorPago) {
   }
   if (!pedido.user_id) return;
 
-  const usuario = await admin.auth().getUser(pedido.user_id);
+  const usuario = await getAuth().getUser(pedido.user_id);
   if (!usuario.email) return;
 
   const perfilDoc = await db.collection("usuarios").doc(pedido.user_id).get();

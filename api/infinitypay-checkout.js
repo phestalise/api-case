@@ -1,14 +1,16 @@
 const axios = require("axios");
-const admin = require("firebase-admin");
+const { initializeApp, getApps, cert } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 
-if (!admin.apps.length) {
+if (!getApps().length) {
   try {
     const serviceAccount = JSON.parse(
       process.env.FIREBASE_SERVICE_ACCOUNT
     );
 
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+      credential: cert(serviceAccount)
     });
   } catch (err) {
     console.error("Erro ao inicializar Firebase Admin:", err);
@@ -16,7 +18,7 @@ if (!admin.apps.length) {
   }
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 
 // ===================================================
 // BLACK FRIDAY
@@ -187,7 +189,7 @@ module.exports = async (req, res) => {
       valor_frete: valorFrete,
       status: "aguardando_pagamento",
       "pagamento.valor": totalValidado,
-      total_validado_em: admin.firestore.FieldValue.serverTimestamp(),
+      total_validado_em: FieldValue.serverTimestamp(),
       arquivado: false
     });
 
@@ -301,7 +303,7 @@ async function montarCliente(userId) {
   if (!userId) return null;
   try {
     const [authUser, perfilDoc] = await Promise.all([
-      admin.auth().getUser(userId).catch(() => null),
+      getAuth().getUser(userId).catch(() => null),
       db.collection("usuarios").doc(userId).get()
     ]);
     const perfil = perfilDoc.exists ? perfilDoc.data() : {};
