@@ -3,6 +3,8 @@
 //   -> grava usuarios/{uid}.cpf_enc + cpf_final e remove o campo cpf em texto puro
 // GET  /api/usuario-dados?uid=<uid>  (Authorization: Bearer <ID token>)
 //   -> devolve o CPF descriptografado (do próprio usuário ou, se for admin, de qualquer um)
+// GET  /api/usuario-dados?uids=a,b,c  (só admin, até 100 por chamada)
+//   -> { cpfs: { uid: "12345678901" | null } }
 const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
@@ -85,14 +87,46 @@ async function salvarCpf(req, res, uid) {
   });
 }
 
-async function lerCpf(req, res, tokenUid) {
-  const alvoUid = String((req.query || {}).uid || tokenUid);
+const MAX_UIDS_LOTE = 100;
 
-  if (alvoUid !== tokenUid) {
-    const meuDoc = await db.collection("usuarios").doc(tokenUid).get();
-    if (!meuDoc.exists || meuDoc.data().is_admin !== true) {
+async function ehAdmin(uid) {
+  const doc = await db.collection("usuarios").doc(uid).get();
+  return doc.exists && doc.data().is_admin === true;
+}
+
+function cpfDoDoc(dados) {
+  if (dados.cpf_enc) return descriptografar(dados.cpf_enc);
+  // Cadastro antigo ainda não migrado (texto puro).
+  if (dados.cpf) return String(dados.cpf).replace(/\D/g, "");
+  return null;
+}
+
+async function lerCpf(req, res, tokenUid) {
+  const query = req.query || {};
+
+  // Lote (só admin): GET ?uids=a,b,c  -> { cpfs: { a: "...", b: null } }
+  // Usado pela exportação de pedidos do painel.
+  if (query.uids !== undefined) {
+    const uids = [...new Set(String(query.uids).split(",").map((u) => u.trim()).filter(Boolean))];
+    if (!uids.length || uids.length > MAX_UIDS_LOTE) {
+      return res.status(400).json({ error: `Informe de 1 a ${MAX_UIDS_LOTE} uids.` });
+    }
+    if (!(await ehAdmin(tokenUid))) {
       return res.status(403).json({ error: "Acesso negado." });
     }
+
+    const docs = await db.getAll(...uids.map((u) => db.collection("usuarios").doc(u)));
+    const cpfs = {};
+    for (const doc of docs) {
+      cpfs[doc.id] = doc.exists ? cpfDoDoc(doc.data()) : null;
+    }
+    return res.status(200).json({ cpfs });
+  }
+
+  const alvoUid = String(query.uid || tokenUid);
+
+  if (alvoUid !== tokenUid && !(await ehAdmin(tokenUid))) {
+    return res.status(403).json({ error: "Acesso negado." });
   }
 
   const alvoDoc = await db.collection("usuarios").doc(alvoUid).get();
@@ -100,16 +134,7 @@ async function lerCpf(req, res, tokenUid) {
     return res.status(404).json({ error: "Usuário não encontrado." });
   }
 
-  const dados = alvoDoc.data();
-  let cpf = null;
-  if (dados.cpf_enc) {
-    cpf = descriptografar(dados.cpf_enc);
-  } else if (dados.cpf) {
-    // Cadastro antigo ainda não migrado (texto puro).
-    cpf = String(dados.cpf).replace(/\D/g, "");
-  }
-
-  return res.status(200).json({ cpf });
+  return res.status(200).json({ cpf: cpfDoDoc(alvoDoc.data()) });
 }
 
 // Mesmo algoritmo do front (public/js/cpf.js).
