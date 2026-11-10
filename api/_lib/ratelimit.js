@@ -1,6 +1,7 @@
 // api/_lib/ratelimit.js
 // Rate limit por IP com Upstash Redis (janela deslizante de 1 minuto).
-// Sem UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN NÃO bloqueia nada:
+// Aceita UPSTASH_REDIS_REST_URL/_TOKEN ou KV_REST_API_URL/_TOKEN (nomes que a
+// integração Upstash do Vercel cria). Sem nenhum dos dois NÃO bloqueia nada:
 // só loga um aviso (uma vez por instância) e deixa a requisição passar.
 const { Ratelimit } = require("@upstash/ratelimit");
 const { Redis } = require("@upstash/redis");
@@ -11,8 +12,8 @@ const limitadores = {};
 
 function obterRedis() {
   if (redis !== undefined) return redis;
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   redis = url && token ? new Redis({ url, token }) : null;
   return redis;
 }
@@ -27,7 +28,7 @@ async function aplicarRateLimit(req, res, nome, limitePorMinuto) {
   const r = obterRedis();
   if (!r) {
     if (!avisou) {
-      console.warn("Rate limit desativado: UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN não configurados.");
+      console.warn("Rate limit desativado: variáveis do Upstash (UPSTASH_REDIS_REST_* ou KV_REST_API_*) não configuradas.");
       avisou = true;
     }
     return true;
