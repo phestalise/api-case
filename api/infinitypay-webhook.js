@@ -2,6 +2,7 @@ const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
 const axios = require("axios");
+const { aplicarRateLimit } = require("./_lib/ratelimit");
 
 // Inicializa o Firebase dentro do handler (e não no carregamento do módulo):
 // se a credencial estiver faltando/inválida, a resposta ainda sai com os
@@ -38,14 +39,14 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
+  // Limite folgado: quem chama é a InfinitePay (poucos IPs, com reenvios).
+  if (!(await aplicarRateLimit(req, res, "infinitypay-webhook", 60))) return;
+
   try {
     iniciarFirebase();
   } catch (err) {
-    console.error("Erro ao inicializar Firebase Admin:", err);
-    return res.status(500).json({
-      error: "Erro de configuração do servidor.",
-      detalhe: err.message
-    });
+    console.error("Erro ao inicializar Firebase Admin:", err.message);
+    return res.status(500).json({ error: "Erro de configuração do servidor." });
   }
 
   if (req.method !== "POST") {
@@ -55,10 +56,13 @@ module.exports = async (req, res) => {
   }
 
   try {
-    console.log(
-      "Webhook recebido:",
-      JSON.stringify(req.body, null, 2)
-    );
+    // Não loga o body inteiro (pode ter dados do cliente).
+    const corpo = req.body || {};
+    console.log("Webhook recebido:", {
+      order_nsu: corpo.order_nsu,
+      transaction_nsu: corpo.transaction_nsu,
+      capture_method: corpo.capture_method
+    });
 
     const {
       order_nsu,
@@ -69,7 +73,7 @@ module.exports = async (req, res) => {
       paid_amount,
       installments,
       invoice_slug
-    } = req.body;
+    } = corpo;
 
     if (!order_nsu) {
       return res.status(400).json({
@@ -226,10 +230,7 @@ module.exports = async (req, res) => {
       error
     );
 
-    return res.status(500).json({
-      error: "Erro interno.",
-      detalhe: error.message
-    });
+    return res.status(500).json({ error: "Erro interno." });
   }
 };
 

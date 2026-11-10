@@ -22,6 +22,8 @@
   },
   "homepage": "https://github.com/phestalise/api-case#readme",
   "dependencies": {
+    "@upstash/ratelimit": "^2.2.0",
+    "@upstash/redis": "^1.41.0",
     "axios": "^1.18.1",
     "firebase-admin": "^13.10.0"
   }

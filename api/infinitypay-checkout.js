@@ -2,6 +2,7 @@ const axios = require("axios");
 const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
+const { aplicarRateLimit } = require("./_lib/ratelimit");
 
 // Inicializa o Firebase dentro do handler (e não no carregamento do módulo):
 // se a credencial estiver faltando/inválida, a resposta ainda sai com os
@@ -54,20 +55,19 @@ module.exports = async (req, res) => {
 
   res.setHeader("Access-Control-Allow-Origin", "https://cases-estalise.vercel.app");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
+  if (!(await aplicarRateLimit(req, res, "infinitypay-checkout", 10))) return;
+
   try {
     iniciarFirebase();
   } catch (err) {
-    console.error("Erro ao inicializar Firebase Admin:", err);
-    return res.status(500).json({
-      error: "Erro de configuração do servidor.",
-      detalhe: err.message
-    });
+    console.error("Erro ao inicializar Firebase Admin:", err.message);
+    return res.status(500).json({ error: "Erro de configuração do servidor." });
   }
 
   if (req.method !== "POST") {
@@ -76,8 +76,23 @@ module.exports = async (req, res) => {
     });
   }
 
+  // -----------------------------------------------------------
+  // AUTENTICAÇÃO: só o usuário logado dono do pedido pode gerar
+  // o pagamento. O front envia o ID token do Firebase Auth.
+  // -----------------------------------------------------------
+  let uid;
   try {
-    const { id, itens, frete, cupom } = req.body;
+    const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    if (!token) {
+      return res.status(401).json({ error: "Faça login para finalizar o pedido." });
+    }
+    uid = (await getAuth().verifyIdToken(token)).uid;
+  } catch (err) {
+    return res.status(401).json({ error: "Sessão expirada. Faça login novamente." });
+  }
+
+  try {
+    const { id, itens, frete, cupom } = req.body || {};
 
     if (!id) {
       return res.status(400).json({ error: "ID do pedido não informado." });
@@ -191,6 +206,15 @@ module.exports = async (req, res) => {
 
     const pedidoData = pedidoDoc.data();
 
+    if (pedidoData.user_id !== uid) {
+      return res.status(403).json({ error: "Este pedido não pertence a você." });
+    }
+
+    // Nunca "reabre" um pedido que já foi pago/enviado.
+    if (!["aguardando_pagamento", "pendente_pagamento"].includes(pedidoData.status)) {
+      return res.status(400).json({ error: "Este pedido não está mais aguardando pagamento." });
+    }
+
     await pedidoRef.update({
       subtotal: arredondar(subtotalValidado),
       desconto: arredondar(desconto),
@@ -243,10 +267,8 @@ module.exports = async (req, res) => {
       response.data?.checkout_url;
 
     if (!checkoutUrl) {
-      return res.status(500).json({
-        error: "InfinitePay não retornou link",
-        retorno: response.data
-      });
+      console.error("InfinitePay não retornou link:", response.data);
+      return res.status(500).json({ error: "InfinitePay não retornou link." });
     }
 
     return res.status(200).json({
@@ -260,10 +282,7 @@ module.exports = async (req, res) => {
       error.response?.data || error.message
     );
 
-    return res.status(500).json({
-      error: "Erro ao gerar pagamento",
-      detalhe: error.response?.data || error.message
-    });
+    return res.status(500).json({ error: "Erro ao gerar pagamento." });
   }
 };
 
