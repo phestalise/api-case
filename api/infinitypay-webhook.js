@@ -3,25 +3,22 @@ const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
 const axios = require("axios");
 
-if (!getApps().length) {
-  try {
-    const serviceAccount = JSON.parse(
-      process.env.FIREBASE_SERVICE_ACCOUNT
-    );
+// Inicializa o Firebase dentro do handler (e não no carregamento do módulo):
+// se a credencial estiver faltando/inválida, a resposta ainda sai com os
+// headers de CORS e o front recebe a mensagem de erro real.
+let db;
 
-    initializeApp({
-      credential: cert(serviceAccount)
-    });
-  } catch (err) {
-    console.error(
-      "Erro ao inicializar Firebase Admin:",
-      err
-    );
-    throw err;
+function iniciarFirebase() {
+  if (db) return;
+  if (!getApps().length) {
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+      throw new Error("Variável FIREBASE_SERVICE_ACCOUNT não configurada no Vercel.");
+    }
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    initializeApp({ credential: cert(serviceAccount) });
   }
+  db = getFirestore();
 }
-
-const db = getFirestore();
 
 // Handle da sua conta InfinitePay (mesmo usado no link de pagamento)
 const INFINITEPAY_HANDLE = "paulo-estalise";
@@ -39,6 +36,16 @@ module.exports = async (req, res) => {
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
+  }
+
+  try {
+    iniciarFirebase();
+  } catch (err) {
+    console.error("Erro ao inicializar Firebase Admin:", err);
+    return res.status(500).json({
+      error: "Erro de configuração do servidor.",
+      detalhe: err.message
+    });
   }
 
   if (req.method !== "POST") {
